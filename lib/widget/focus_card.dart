@@ -1,0 +1,183 @@
+import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+
+import '../entity/sub_scribe_model.dart';
+import '../generated/l10n.dart';
+
+class FocusCard extends StatefulWidget {
+  final SubScribeModel model;
+  final GestureTapCallback? onDelete;
+  final GestureTapCallback? onUse;
+  final ValueChanged<String>? onEdit;
+  const FocusCard({super.key, required this.model, required this.onDelete, this.onUse,this.onEdit});
+
+  @override
+  State<FocusCard> createState() => _FocusCardState();
+}
+
+class _FocusCardState extends State<FocusCard> {
+  _onFocusChange(bool isFocus) {
+    if (isFocus) {
+      Scrollable.ensureVisible(context, alignment: 0.5, duration: const Duration(milliseconds: 300), curve: Curves.linear);
+    }
+  }
+
+  String _calcLinkName() {
+    if (widget.model.link == 'default') {
+      return S.current.defaultText;
+    }
+    if (widget.model.link!.contains('?')) {
+      final tl = Uri.parse(widget.model.link!).queryParameters['tl'];
+      if (tl != null) {
+        return tl;
+      }
+    }
+    if (widget.model.local == true) {
+      return p.basename(widget.model.link ?? '');
+    }
+    return widget.model.link!.split('?').first.split('/').last.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(top: 20, left: 20, right: 10, bottom: 12),
+      decoration: BoxDecoration(
+        color: widget.model.selected == true ? Colors.redAccent.withValues(alpha: 0.5) : const Color(0xFF2B2D30),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (widget.model.local == true)
+                Container(
+                  margin: const EdgeInsets.only(right: 10),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                  decoration: BoxDecoration(color: const Color(0xA4A27672), borderRadius: BorderRadius.circular(4)),
+                  child: const Text('本地', style: TextStyle(color: Colors.yellow, fontSize: 12)),
+                ),
+              Text(_calcLinkName(), style: const TextStyle(fontSize: 20)),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Text('${S.current.createTime}：${widget.model.time}', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 14)),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Spacer(),
+              if(widget.model.link != 'default' && widget.model.local != true) TextButton(
+                onPressed: () async {
+                  final sureNode = FocusNode();
+                  final newLink = await showDialog<String>(
+                    context: context,
+                    builder: (context) {
+                      final controller = TextEditingController(text: widget.model.link);
+                      return AlertDialog(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        backgroundColor: const Color(0xFF393B40),
+                        title: Text(S.current.edit, style: const TextStyle(color: Colors.white, fontSize: 20)),
+                        content: SingleChildScrollView(
+                          child: TextField(
+                            autofocus: true,
+                            controller: controller,
+                            maxLines: null,
+                            textInputAction: TextInputAction.done,
+                            style: const TextStyle(color: Colors.white),
+                            scrollPadding: const EdgeInsets.only(bottom: 200),
+                            decoration: InputDecoration(
+                              hintText: S.current.addFiledHintText,
+                              hintStyle: const TextStyle(color: Colors.white70),
+                              enabledBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Colors.white30),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: const BorderSide(color: Colors.white),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            onSubmitted: (value){
+                              sureNode.requestFocus();
+                            },
+                            onEditingComplete: () {
+                              sureNode.requestFocus();
+                            },
+                          ),
+                        ),
+                        actions: [
+                          TextButton(
+                            autofocus: false,
+                            onPressed: () {
+                              Navigator.pop(context);
+                            },
+                            child: Text(S.current.dialogCancel, style: const TextStyle(fontSize: 14)),
+                          ),
+                          TextButton(
+                            autofocus: false,
+                            focusNode: sureNode,
+                            onPressed: () {
+                              Navigator.pop(context, controller.text.trim());
+                            },
+                            child: Text(S.current.dialogConfirm, style: const TextStyle(fontSize: 14)),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                  if (newLink != null && newLink.isNotEmpty) {
+                    widget.onEdit?.call(newLink);
+                  }
+                },
+                child: Text(S.current.edit),
+              ),
+              if (widget.model.selected != true && widget.model.link != 'default')
+                TextButton(
+                  onFocusChange: _onFocusChange,
+                  onPressed: () async {
+                    final isDelete = await showDialog(
+                      context: context,
+                      builder: (context) {
+                        return AlertDialog(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          backgroundColor: const Color(0xFF393B40),
+                          content: Text(S.current.dialogDeleteContent, style: const TextStyle(color: Colors.white, fontSize: 20)),
+                          actions: [
+                            TextButton(
+                              autofocus: true,
+                              onPressed: () {
+                                Navigator.pop(context, false);
+                              },
+                              child: Text(S.current.dialogCancel, style: const TextStyle(fontSize: 17)),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                Navigator.pop(context, true);
+                              },
+                              child: Text(S.current.dialogConfirm, style: const TextStyle(fontSize: 17)),
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                    if (isDelete == true) {
+                      widget.onDelete?.call();
+                    }
+                  },
+                  child: Text(S.current.delete),
+                ),
+              TextButton(
+                onFocusChange: _onFocusChange,
+                onPressed: widget.model.selected != true ? widget.onUse : () {},
+                child: Text(widget.model.selected == true ? S.current.inUse : S.current.setDefault),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}

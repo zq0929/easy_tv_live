@@ -1,0 +1,155 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:dio/dio.dart';
+import 'package:easy_tv_live/util/log_util.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter_easyloading_plus/flutter_easyloading_plus.dart';
+
+import '../generated/l10n.dart';
+
+class HttpUtil {
+  static final HttpUtil _instance = HttpUtil._();
+  late Dio _dio;
+
+  /// 直播源文件体积较大、部分源站较慢，单独用更宽松的超时，避免 10s 连接超时直接失败
+  late Dio _sourceDio;
+  BaseOptions options = BaseOptions(connectTimeout: const Duration(seconds: 10), receiveTimeout: const Duration(seconds: 10));
+
+  CancelToken cancelToken = CancelToken();
+
+  factory HttpUtil() {
+    return _instance;
+  }
+
+  HttpUtil._() {
+    _dio = Dio(options)..interceptors.add(LogInterceptor(requestBody: true, requestHeader: false, responseBody: false, logPrint: LogUtil.v));
+    _sourceDio = Dio(BaseOptions(connectTimeout: const Duration(seconds: 30), receiveTimeout: const Duration(seconds: 60)))
+      ..interceptors.add(LogInterceptor(requestBody: false, requestHeader: false, responseBody: false, logPrint: LogUtil.v));
+  }
+
+  /// 拉取直播源文本：超时更宽松，且统一返回 String
+  Future<String?> getSourceText(String url, {bool isShowLoading = true}) async {
+    if (isShowLoading) EasyLoading.show();
+    Response? response;
+    try {
+      response = await _sourceDio.get(url);
+      if (isShowLoading) EasyLoading.dismiss();
+    } on DioException catch (e) {
+      if (isShowLoading) EasyLoading.dismiss();
+      formatError(e, isShowLoading);
+    } catch (e) {
+      if (isShowLoading) EasyLoading.dismiss();
+      LogUtil.e('直播源请求异常::::$e');
+    }
+    final data = response?.data;
+    if (data == null) return null;
+    return data is String ? data : data.toString();
+  }
+
+  Future<T?> postRequest<T>(
+    String path, {
+    Object? data,
+    Options? options,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+    bool isShowLoading = true,
+  }) async {
+    LogUtil.v('PostRequest::::::$path');
+    if (isShowLoading) EasyLoading.show();
+    Response? response;
+    try {
+      response = await _dio.post<T>(path, data: data, options: options, cancelToken: cancelToken, onReceiveProgress: onReceiveProgress);
+      if (isShowLoading) EasyLoading.dismiss();
+    } on DioException catch (e) {
+      if (isShowLoading) EasyLoading.dismiss();
+      formatError(e, isShowLoading);
+    }
+    return response?.data;
+  }
+
+  Future<T?> getRequest<T>(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+    Options? options,
+    CancelToken? cancelToken,
+    ProgressCallback? onReceiveProgress,
+    bool isShowLoading = true,
+  }) async {
+    if (isShowLoading) EasyLoading.show();
+    Response? response;
+    try {
+      response = await _dio.get<T>(
+        path,
+        queryParameters: queryParameters,
+        options: options,
+        cancelToken: cancelToken,
+        onReceiveProgress: onReceiveProgress,
+      );
+      if (isShowLoading) EasyLoading.dismiss();
+    } on DioException catch (e) {
+      if (isShowLoading) EasyLoading.dismiss();
+      formatError(e, isShowLoading);
+    }
+    return response?.data;
+  }
+
+  Future<int?> downloadFile(String url, String savePath, {ValueChanged<double>? progressCallback}) async {
+    Response? response;
+    try {
+      // await _dio.head(url);
+      response = await _dio.download(
+        url,
+        savePath,
+        options: Options(
+          receiveTimeout: const Duration(seconds: 60),
+          headers: {
+            HttpHeaders.acceptEncodingHeader: '*',
+            HttpHeaders.userAgentHeader:
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          },
+        ),
+        onReceiveProgress: (received, total) {
+          if (total <= 0) return;
+          progressCallback?.call((received / total));
+        },
+      );
+      if (response.statusCode != 200) {
+        throw DioException(requestOptions: response.requestOptions, error: 'status code ${response.statusCode}');
+      }
+    } on DioException catch (e) {
+      formatError(e, true);
+    }
+    return response?.statusCode ?? 500;
+  }
+}
+
+String extractCredentials(String url, Options? options) {
+  final uri = Uri.parse(url);
+  if (uri.hasAuthority && uri.userInfo.isNotEmpty) {
+    final base64Us = base64Encode(utf8.encode(uri.userInfo));
+    options = options ?? Options();
+    options.headers ??= {};
+    options.headers![HttpHeaders.authorizationHeader] = 'Basic $base64Us';
+    return url.replaceFirst('${uri.userInfo}@', '');
+  }
+  return url;
+}
+
+void formatError(DioException e, bool isShowLoading) {
+  LogUtil.v('DioException>>>>>$e');
+  if (!isShowLoading) return;
+  if (e.type == DioExceptionType.connectionTimeout) {
+    EasyLoading.showToast(S.current.netTimeOut);
+  } else if (e.type == DioExceptionType.sendTimeout) {
+    EasyLoading.showToast(S.current.netSendTimeout);
+  } else if (e.type == DioExceptionType.receiveTimeout) {
+    EasyLoading.showToast(S.current.netReceiveTimeout);
+  } else if (e.type == DioExceptionType.badResponse) {
+    EasyLoading.showToast(S.current.netBadResponse(e.response?.statusCode ?? ''));
+  } else if (e.type == DioExceptionType.cancel) {
+    EasyLoading.showToast(S.current.netCancel);
+  } else {
+    EasyLoading.showToast(e.message.toString());
+  }
+}
