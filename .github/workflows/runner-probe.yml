@@ -1,0 +1,19 @@
+name: Runner Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, macos-14, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    steps:
+      - name: Arch
+        run: |
+          echo "label=${{ matrix.os }}"
+          uname -m
+          sysctl -n machdep.cpu.brand_string || true
