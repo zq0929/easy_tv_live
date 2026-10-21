@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:easy_tv_live/provider/theme_provider.dart';
 import 'package:easy_tv_live/setting/qr_scan_page.dart';
@@ -24,46 +26,119 @@ import 'provider/download_provider.dart';
 import 'router_keys.dart';
 import 'setting/setting_page.dart';
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  if (!EnvUtil.isMobile) {
-    await windowManager.ensureInitialized();
-    WindowOptions windowOptions = const WindowOptions(
-      size: Size(900, 900 * 9 / 16),
-      minimumSize: Size(300, 300 * 9 / 16),
-      center: true,
-      backgroundColor: Colors.transparent,
-      skipTaskbar: false,
-      titleBarStyle: TitleBarStyle.normal,
-      title: '极简TV',
-    );
-    windowManager.waitUntilReadyToShow(windowOptions, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
-  }
-  WakelockPlus.enable();
   LogUtil.init(isDebug: kDebugMode, tag: 'EasyTV');
-  await SpUtil.getInstance();
-  fvp.registerWith(
-    options: {
-      'platforms': ['android', 'ios', 'windows', 'linux', 'macos'],
-      'video.decoders': ['D3D11', 'NVDEC', 'FFmpeg'],
-      'player': {'cc': '0', 'buffer': '3000+60000'},
-      'global': {'logLevel': 'Error'},
-    },
+  LogUtil.e('==== EasyTV 启动开始 ====');
+  FlutterError.onError = (FlutterErrorDetails details) {
+    LogUtil.e('FlutterError::::${details.exceptionAsString()}\n${details.stack}');
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    LogUtil.e('未捕获异常::::$error\n$stack');
+    return true;
+  };
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    return Directionality(
+      textDirection: TextDirection.ltr,
+      child: ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text('启动/渲染异常：\n${details.exceptionAsString()}', style: const TextStyle(color: Colors.white, fontSize: 12)),
+          ),
+        ),
+      ),
+    );
+  };
+  runZonedGuarded(
+    () => _bootstrap(),
+    (Object error, StackTrace stack) => LogUtil.e('Zone 未捕获异常::::$error\n$stack'),
   );
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ThemeProvider()),
-        ChangeNotifierProvider(create: (_) => DownloadProvider()),
-      ],
-      child: const MyApp(),
-    ),
-  );
+}
+
+Future<void> _bootstrap() async {
+  // 桌面端窗口初始化失败不应该阻塞 App 启动
+  if (!EnvUtil.isMobile) {
+    try {
+      await windowManager.ensureInitialized();
+      const WindowOptions windowOptions = WindowOptions(
+        size: Size(900, 900 * 9 / 16),
+        minimumSize: Size(300, 300 * 9 / 16),
+        center: true,
+        backgroundColor: Colors.transparent,
+        skipTaskbar: false,
+        titleBarStyle: TitleBarStyle.normal,
+        title: '极简TV',
+      );
+      windowManager.waitUntilReadyToShow(windowOptions, () async {
+        await windowManager.show();
+        await windowManager.focus();
+      });
+    } catch (e, s) {
+      LogUtil.e('桌面窗口初始化失败::::$e\n$s');
+    }
+  }
+
+  unawaited(_safeWakelock());
+
+  try {
+    await SpUtil.getInstance();
+    LogUtil.e('SpUtil 初始化完成');
+  } catch (e, s) {
+    LogUtil.e('SpUtil 初始化失败::::$e\n$s');
+  }
+
+  // fvp/播放器初始化异常不能把 App 卡在启动页，捕获后继续启动界面
+  try {
+    fvp.registerWith(
+      options: {
+        'platforms': ['android', 'ios', 'windows', 'linux', 'macos'],
+        'video.decoders': ['D3D11', 'NVDEC', 'FFmpeg'],
+        'player': {'cc': '0', 'buffer': '3000+60000'},
+        'global': {'logLevel': 'Error'},
+      },
+    );
+    LogUtil.e('fvp 初始化完成');
+  } catch (e, s) {
+    LogUtil.e('fvp 初始化失败（不影响界面启动）::::$e\n$s');
+  }
+
+  try {
+    runApp(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(create: (_) => ThemeProvider()),
+          ChangeNotifierProvider(create: (_) => DownloadProvider()),
+        ],
+        child: const MyApp(),
+      ),
+    );
+    LogUtil.e('runApp 已调用');
+  } catch (e, s) {
+    LogUtil.e('runApp 失败::::$e\n$s');
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: Text('启动失败：$e', style: const TextStyle(color: Colors.white))),
+        ),
+      ),
+    );
+  }
+
   if (Platform.isAndroid) {
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.transparent));
+  }
+}
+
+Future<void> _safeWakelock() async {
+  try {
+    await WakelockPlus.enable();
+  } catch (e) {
+    LogUtil.e('Wakelock 初始化失败::::$e');
   }
 }
 
