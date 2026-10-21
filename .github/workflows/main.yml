@@ -12,7 +12,8 @@ permissions:
 env:
   FLUTTER_VERSION: '3.47.7'
   # fvp 的 mdk-sdk 默认从 sourceforge 下载（很慢），改用 GitHub release
-  FVP_DEPS_URL: https://github.com/wang-bin/mdk-sdk/releases/latest/download
+  # 固定到与 fvp 0.35.2 匹配的 mdk-sdk 版本（latest 已改名 windows 包，会导致 Windows 构建失败）
+  FVP_DEPS_URL: https://github.com/wang-bin/mdk-sdk/releases/download/v0.35.1
 
 jobs:
   build_android_and_tv_ios_macos:
@@ -151,6 +152,8 @@ jobs:
 
       - name: Create Linux packages
         run: |
+          APP_VERSION=$(sed -n 's/^version: \([0-9.]*\).*/\1/p' pubspec.yaml)
+          echo "APP_VERSION=$APP_VERSION"
           # 准备打包目录
           mkdir -p packages
           cd build/linux/x64/release/bundle
@@ -186,7 +189,7 @@ jobs:
           # 创建DEBIAN控制文件
           cat > deb-package/DEBIAN/control << EOF
           Package: easytv-live
-          Version: ${{ github.ref_name }}
+          Version: $APP_VERSION
           Section: video
           Priority: optional
           Architecture: amd64
@@ -222,7 +225,7 @@ jobs:
           # 创建rpm spec文件
           cat > rpm-package/SPECS/easytv-live.spec << EOF
           Name: easytv-live
-          Version: ${{ github.ref_name }}
+          Version: $APP_VERSION
           Release: 1
           Summary: Easy TV Live Application
           License: MIT
