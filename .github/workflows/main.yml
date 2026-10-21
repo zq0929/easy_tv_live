@@ -215,12 +215,12 @@ jobs:
           mkdir -p rpm-package/BUILD
           mkdir -p rpm-package/RPMS
           mkdir -p rpm-package/SOURCES
-          mkdir -p rpm-package/BUILDROOT/easytv-live-${{ github.ref_name }}-1.x86_64/usr/bin
-          mkdir -p rpm-package/BUILDROOT/easytv-live-${{ github.ref_name }}-1.x86_64/usr/share/applications
+          mkdir -p rpm-package/BUILDROOT/easytv-live-$APP_VERSION-1.x86_64/usr/bin
+          mkdir -p rpm-package/BUILDROOT/easytv-live-$APP_VERSION-1.x86_64/usr/share/applications
           
           # 复制文件到rpm构建目录
-          cp -r build/linux/x64/release/bundle/* rpm-package/BUILDROOT/easytv-live-${{ github.ref_name }}-1.x86_64/usr/bin/
-          cp deb-package/usr/share/applications/easytv-live.desktop rpm-package/BUILDROOT/easytv-live-${{ github.ref_name }}-1.x86_64/usr/share/applications/
+          cp -r build/linux/x64/release/bundle/* rpm-package/BUILDROOT/easytv-live-$APP_VERSION-1.x86_64/usr/bin/
+          cp deb-package/usr/share/applications/easytv-live.desktop rpm-package/BUILDROOT/easytv-live-$APP_VERSION-1.x86_64/usr/share/applications/
           
           # 创建rpm spec文件
           cat > rpm-package/SPECS/easytv-live.spec << EOF
@@ -285,7 +285,7 @@ jobs:
           chmod +x AppDir/AppRun
           
           # 安装FUSE并下载appimagetool
-          sudo apt-get install -y fuse libfuse2
+          sudo apt-get install -y fuse libfuse2 || sudo apt-get install -y fuse libfuse2t64 || true
           wget -O appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
           
@@ -313,6 +313,20 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
+
+      - name: Pre-seed mdk-sdk for fvp
+        shell: pwsh
+        run: |
+          $fvp = Get-ChildItem "$env:PUB_CACHE\hosted\pub.dev" -Directory -Filter "fvp-*" | Select-Object -First 1
+          if (-not $fvp) { Write-Error "fvp package not found in pub cache"; exit 1 }
+          $dir = Join-Path $fvp.FullName "windows"
+          $archive = Join-Path $dir "mdk-sdk-windows-x64.7z"
+          Invoke-WebRequest -Uri "https://github.com/wang-bin/mdk-sdk/releases/download/v0.35.1/mdk-sdk-windows-x64.7z" -OutFile $archive
+          Push-Location $dir
+          7z x -y $archive | Out-Null
+          Pop-Location
+          Test-Path (Join-Path $dir "mdk-sdk\lib\cmake\FindMDK.cmake")
+
       - name: Build Windows
         run: |
           flutter build windows --dart-define=isTV=false --release
